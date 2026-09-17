@@ -43,10 +43,13 @@ PROVIDERS = {
         "endpoint": "https://api.deepseek.com/v1/chat/completions",
         "auth_style": "bearer",
         "key_env": "DEEPSEEK_API_KEY",
-        "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
-        "default_model": "deepseek-v4-flash",
-        "json_mode": True,
-        "hint": "中文命题/评分稳定；flash 快而省，pro 评分更细腻",
+        # 官方公开 API 的模型名。实测（2026-06，api.deepseek.com）：deepseek-chat 长生成正常；
+        # deepseek-reasoner 与仓库旧预设 deepseek-v4-flash / -pro 会「只返回思考、正文为空」。
+        # 若你的账号或网关暴露别的模型名，直接在配置页改「默认模型」即可。
+        "models": ["deepseek-chat", "deepseek-reasoner"],
+        "default_model": "deepseek-chat",
+        "json_mode": True,   # 实测 deepseek-chat + JSON 模式可正常生成
+        "hint": "中文命题/评分稳定；chat = 通用（推荐），reasoner = 推理型（更慢、思考会占输出预算）",
     },
     "minimax": {
         "label": "MiniMax",
@@ -357,13 +360,23 @@ def _classify(data, status_code):
         return "error", "接口返回错误：%s" % msg
     choices = data.get("choices")
     if isinstance(choices, list) and choices:
-        msg = choices[0].get("message") or {}
+        ch = choices[0] or {}
+        msg = ch.get("message") or {}
         content = (msg.get("content") or "").strip()
-        if not content:
-            content = (msg.get("reasoning_content") or "").strip()
+        reasoning = (msg.get("reasoning_content") or "").strip()
+        finish = str(ch.get("finish_reason") or "").strip()
+        usage = json.dumps(data.get("usage") or {}, ensure_ascii=False)
         if content:
             return "ok", content
-        return "error", "choices[0].message.content 为空（%s）" % json.dumps(data, ensure_ascii=False)[:200]
+        # 注意：绝不能用 reasoning_content（思考过程）当答案 —— 它不是最终回答，
+        # 拿去解析 JSON 只会得到「Expecting value: line 1 column 1」这种误导性报错。
+        if finish == "length":
+            return "truncated", "输出被 max_tokens 截断（finish_reason=length，用量 %s）" % usage
+        if reasoning:
+            return "reasoning_only", (
+                "模型只返回了思考内容、正文为空（reasoning_content %d 字，finish_reason=%s，用量 %s）"
+                % (len(reasoning), finish or "?", usage))
+        return "error", "choices[0].message.content 为空（finish_reason=%s，用量 %s）" % (finish or "?", usage)
     err = data.get("error")
     if err:
         msg = err.get("message") if isinstance(err, dict) else str(err)
@@ -373,7 +386,16 @@ def _classify(data, status_code):
     return "error", "返回结构异常：%s" % json.dumps(data, ensure_ascii=False)[:300]
 
 
-def chat(messages, model=None, temperature=0.7, max_tokens=4096, timeout=120):
+def _default_max_tokens():
+    """输出预算：推理型模型的「思考」也会占额度，所以默认给宽一点，可用 AI_MAX_TOKENS 覆盖。"""
+    try:
+        v = int(os.environ.get("AI_MAX_TOKENS") or 0)
+    except ValueError:
+        v = 0
+    return v if v > 0 else 8192
+
+
+def chat(messages, model=None, temperature=0.7, max_tokens=None, timeout=120):
     """发一次对话请求，返回文本内容。失败抛 ProviderError。
 
     重试策略（最多 3 次请求，都在同一次调用内完成，对上层透明）：
@@ -384,6 +406,7 @@ def chat(messages, model=None, temperature=0.7, max_tokens=4096, timeout=120):
     import requests  # 延迟导入：只读配置（如配置页首屏）时不需要网络库
 
     st = load_settings()
+    max_tokens = max_tokens or _default_max_tokens()
     prov, m = parse_model_tag(model)
     prov = active_provider(prov, st)
     model_name = active_model(prov, m or None, st)
@@ -404,9 +427,9 @@ def chat(messages, model=None, temperature=0.7, max_tokens=4096, timeout=120):
         auth = key if s == "raw" else ("Bearer " + key)
         return {"Authorization": auth, "Content-Type": "application/json"}
 
-    def attempt(s, with_json):
+    def attempt(s, with_json, budget):
         payload = {"model": model_name, "messages": messages, "temperature": temperature,
-                   "max_tokens": max_tokens, "stream": False}
+                   "max_tokens": budget, "stream": False}
         if with_json:
             payload["response_format"] = {"type": "json_object"}
         try:
@@ -431,11 +454,10 @@ def chat(messages, model=None, temperature=0.7, max_tokens=4096, timeout=120):
         kind, payload_or_msg = _classify(data, resp.status_code)
         if kind == "ok":
             return "ok", payload_or_msg
-        if kind == "auth" or resp.status_code in (401, 403):
-            return "auth", payload_or_msg
-        if resp.status_code in (400, 422):
-            return "json", payload_or_msg
-        return "error", payload_or_msg
+        if kind == "error" and resp.status_code in (400, 422):
+            return "json", payload_or_msg      # response_format 不被支持 → 去掉它重试
+        # auth / truncated / reasoning_only / error 一律原样上抛给重试循环判断
+        return kind, payload_or_msg
 
     plan = [(style, use_json)]
     other = "raw" if style != "raw" else "bearer"
@@ -448,15 +470,27 @@ def chat(messages, model=None, temperature=0.7, max_tokens=4096, timeout=120):
     seen = set()
     tried = []
     auth_failed = False
-    for s, wj in plan:
-        if (s, wj) in seen:
+    budget = max_tokens
+    bumped = False          # 是否已经因「输出被截断 / 只有思考」加大过预算
+    idx = 0
+    while idx < len(plan):
+        s, wj = plan[idx]
+        idx += 1
+        if (s, wj, budget) in seen:
             continue
-        seen.add((s, wj))
+        seen.add((s, wj, budget))
         tried.append(s)
-        kind, msg = attempt(s, wj)
+        kind, msg = attempt(s, wj, budget)
         if kind == "ok":
             return msg
         last = msg
+        if kind in ("truncated", "reasoning_only") and not bumped and budget < 32000:
+            # 常见于推理型模型：思考把预算吃光 / 输出被截断 → 翻倍预算把整套计划重跑一遍
+            bumped = True
+            budget = min(budget * 2, 32000)
+            idx = 0
+            seen = set()
+            continue
         if kind == "auth":
             auth_failed = True
             continue          # 认证失败 → 换另一种认证头 / 去掉 JSON 模式再试
@@ -487,7 +521,7 @@ def test(provider=None, model=None, timeout=30):
         return out
     try:
         content = chat([{"role": "user", "content": "只回复两个字：收到"}],
-                       model="%s:%s" % (prov, model_name), temperature=0, max_tokens=64, timeout=timeout)
+                       model="%s:%s" % (prov, model_name), temperature=0, max_tokens=512, timeout=timeout)
         out["ok"] = True
         out["reply"] = content[:80]
     except ProviderError as e:
