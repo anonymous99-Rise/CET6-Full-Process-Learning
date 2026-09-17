@@ -459,8 +459,8 @@ CET-6学习/
 
 | 引擎 | 默认模型 | 接口地址（可在配置页改）| 适合场景 | JSON 模式 | 实测状态 |
 |:---|:---|:---|:---|:---:|:---|
-| **DeepSeek** | `deepseek-v4-flash`（快·省）/ `deepseek-v4-pro`（评分更细）| `https://api.deepseek.com/v1/chat/completions` | 命题与主观评分，中文稳 | 默认开启 | 既有链路 |
-| **MiniMax** | `MiniMax-M2.7` / `MiniMax-M3` | `https://api.minimaxi.com/v1/text/chatcompletion_v2` | 长文批量生成，单价更低 | 默认关闭 | 端点已实测可达；完整鉴权待真实密钥验证 |
+| **DeepSeek** | `deepseek-chat`（通用·默认）/ `deepseek-reasoner`（推理）| `https://api.deepseek.com/v1/chat/completions` | 命题与主观评分，中文稳 | 默认开启 | ✅ 已实测：`deepseek-chat` 正常；`deepseek-reasoner` 长生成易只回思考（会自动加大预算重试）|
+| **MiniMax** | `MiniMax-M2.7` / `MiniMax-M3` | `https://api.minimaxi.com/v1/text/chatcompletion_v2` | 长文批量生成，单价更低 | 默认关闭 | ✅ 已用真实密钥实测通过（可正常出题）|
 
 ### 可视化配置页
 
@@ -526,8 +526,11 @@ A: 不会。`/api/health` 是唯一豁免的接口（不含机密，只返回 ok
 **Q: 怎么在 DeepSeek 和 MiniMax 之间切换？**
 A: 两种粒度 —— ① **全局默认**：在「引擎与密钥配置」页选默认引擎/模型（写入 `settings.json`）；② **单次做题**：在各应用设置区把「引擎 · 模型」下拉切到 `MiniMax · M2.7` 之类，只影响这一次。两家密钥都填好即可随意切。
 
+**Q: 为什么用 `deepseek-v4-flash` 会报「生成未达标（Expecting value: line 1 column 1）」？**
+A: 这个模型名在公开 `api.deepseek.com` 上做真实长生成时**只返回思考内容、正文为空**（旧版代码把思考当答案去解析 JSON，就抛出这句误导性错误）。已实测：`deepseek-chat` 正常、`deepseek-reasoner` 与 `deepseek-v4-flash/-pro` 会失败。现在预设已改为官方 `deepseek-chat`，并且后端会识别「只有思考 / 输出被截断」→ 自动把输出预算翻倍重试，仍失败时给出带 `finish_reason` 与 token 用量的准确报错。
+
 **Q: MiniMax 现在能直接用吗？**
-A: 端点已实测可达（用无效密钥请求会返回 MiniMax 原生的 `login fail: Please carry the API secret key...`，说明地址与路径正确），但**完整鉴权与 JSON 模式还没用真实密钥验证过**。首次请在配置页点「测试连通性」：若报 404/400 就把控制台里的真实接口地址填进「接口地址」；若模型不支持 `response_format`，后端会自动去掉该参数重试一次（认证头也会在 `Bearer` / 原始密钥之间自动回退）。
+A: ✅ 已用真实密钥实测通过（能正常生成整道题）。端点与路径此前也已用无效密钥的报错验证过。首次请在配置页点「测试连通性」：若报 404/400 就把控制台里的真实接口地址填进「接口地址」；若模型不支持 `response_format`，后端会自动去掉该参数重试一次（认证头也会在 `Bearer` / 原始密钥之间自动回退）。
 
 **Q: 配置页为什么保存不了密钥？**
 A: 安全闸默认只允许「本机部署」写密钥（`BIND_ADDR` 为 `127.0.0.1` 或未设置）。若你把 `BIND_ADDR` 改成了 `0.0.0.0`（对局域网开放），非本机来源的写入会被 403 拒绝；在服务器本机打开配置页仍可写，或设 `ALLOW_REMOTE_KEY_WRITE=1` 放开（风险自担）。
