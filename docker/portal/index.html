@@ -126,6 +126,11 @@
   </noscript>
 
   <section>
+    <h2>⚙️ 配置 <span class="count">7 个应用共用这一份</span></h2>
+    <div class="grid" id="tools"></div>
+  </section>
+
+  <section>
     <h2>📚 训练应用 <span class="count" id="app-count"></span></h2>
     <div class="grid" id="cards"></div>
   </section>
@@ -162,6 +167,7 @@ docker compose down</pre>
     <ul>
       <li><b>密钥</b>：在仓库根目录 <code>.env</code> 里填一次 <code>DEEPSEEK_API_KEY</code>，7 个应用共用；也可以各应用目录自己的 <code>.env</code> 里分别填（根目录 <code>.env</code> 优先级更高）。</li>
       <li><b>改提示词</b>：<code>prompts/*.txt</code> 改完即生效（应用每次请求都重读，无需重启）。</li>
+      <li><b>引擎与密钥</b>：打开上面「⚙️ 引擎与密钥配置」→ 可视化选默认引擎（DeepSeek / MiniMax）、改接口地址与认证方式、填两家密钥、一键测试连通性。保存即生效（无需重启），密钥只写不回显。</li>
       <li><b>改 .env</b>：执行 <code>docker compose up -d</code> 按新配置重建容器 —— 注意 <code>docker compose restart</code> 只重启进程、<b>不会</b>读入根目录 <code>.env</code> 的新值；<b>改 app.py</b> 用 <code>docker compose restart</code> 即可。</li>
       <li><b>改端口</b>：只改根目录 <code>.env</code>（如 <code>LISTENING_PORT=6555</code>）再 <code>docker compose up -d</code>，本页的跳转链接会自动跟随；卡片上的端口徽标是默认值，仅供对照。</li>
       <li><b>端口徽标 / 直连</b>：卡片与表格里的 <code>:5555</code> 之类为默认端口，实际跳转由 nginx 按 <code>.env</code> 决定。</li>
@@ -220,6 +226,12 @@ const OFFLINE = [
     desc:"考试时间分配与答题策略" }
 ];
 
+/* 配置面板（不是训练应用，单独一栏；状态灯同样由 nginx 服务端代探） */
+const TOOLS = [
+  { key:"config", emoji:"⚙️", name:"引擎与密钥配置", port:5562, open:"打开配置 →",
+    desc:"可视化配置 DeepSeek / MiniMax：默认引擎、模型、接口地址、认证方式与两家密钥；密钥只写不回显，可一键测试连通性" }
+];
+
 const STATE_TEXT = { ready:"就绪", nokey:"未配置 Key", down:"未启动", checking:"检测中" };
 
 /* ---------------- 渲染卡片 / 表格 ---------------- */
@@ -268,6 +280,24 @@ function buildPage(){
     body.appendChild(tr);
   });
 
+  const tools = document.getElementById("tools");
+  TOOLS.forEach(function(t){
+    const el = document.createElement("a");
+    el.className = "card";
+    el.href = "/go/" + t.key + "/";
+    el.target = "_blank";
+    el.rel = "noopener";
+    el.innerHTML =
+      '<div class="top"><span class="emoji">' + t.emoji + '</span>' +
+        '<span class="dot checking" data-dot="' + t.key + '"></span></div>' +
+      '<h3>' + t.name + '</h3>' +
+      '<div class="badges"><span class="badge port" title="默认端口；实际跳转由根目录 .env 决定">:' + t.port + '</span>' +
+        '<span class="badge">密钥只写不回显</span></div>' +
+      '<div class="desc">' + t.desc + '</div>' +
+      '<span class="open">' + t.open + '</span>';
+    tools.appendChild(el);
+  });
+
   OFFLINE.forEach(function(o){
     const el = document.createElement("a");
     el.className = "card";
@@ -300,9 +330,10 @@ function setState(key, state){
 async function refreshStatus(){
   document.getElementById("summary").innerHTML =
     '<span class="dot checking"></span>正在检测应用状态…';
-  APPS.forEach(function(a){ setState(a.key, "checking"); });
+  const ALL = APPS.concat(TOOLS);
+  ALL.forEach(function(a){ setState(a.key, "checking"); });
 
-  const results = await Promise.all(APPS.map(async function(a){
+  const results = await Promise.all(ALL.map(async function(a){
     try{
       const res = await fetch("/health/" + a.key + "/", { cache:"no-store" });
       if(!res.ok) return { key:a.key, state:"down" };
@@ -322,7 +353,7 @@ async function refreshStatus(){
   if(online > 0 && keyed === 0) extra = ' <span style="opacity:.9">· 请在根目录 .env 填 DEEPSEEK_API_KEY</span>';
   document.getElementById("summary").innerHTML =
     '<span class="dot ' + (online === APPS.length ? (keyed === APPS.length ? "ready" : "nokey") : "down") + '"></span>' +
-    '在线 ' + online + "/" + APPS.length + ' · Key 已配置 ' + keyed + "/" + APPS.length +
+    '在线 ' + online + "/" + ALL.length + ' · Key 已配置 ' + keyed + "/" + ALL.length +
     ' · 检测时间 ' + now + extra;
 }
 

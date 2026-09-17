@@ -13,6 +13,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
+import providers  # AI 引擎抽象层（DeepSeek / MiniMax 可选，本目录一份）
 import requests
 from flask import Flask, jsonify, render_template, request
 
@@ -22,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent
 MY_DIR = BASE_DIR.parent / "my"
 ENV_FILE = BASE_DIR / ".env"
 
-DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+# 各家接口地址 / 认证方式 / JSON 模式差异统一收口在 providers.py（DeepSeek / MiniMax 可选）
 DEFAULT_PORT = 5556
 TYPE_LABEL = "选词填空"
 
@@ -43,14 +44,16 @@ def load_env(path):
 
 load_env(ENV_FILE)
 
-# 注意：DEFAULT_MODEL 必须在 load_env() 之后读取 —— load_env 用 os.environ.setdefault
-# 把「本应用目录 .env」写进环境变量；若在模块级、load_env 之前读，.env 里的
-# DEEPSEEK_MODEL 会被静默忽略（v3.4.0 修正）。
-DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 
-def get_key():
-    return os.environ.get("DEEPSEEK_API_KEY", "").strip()
+def get_key(provider=None):
+    """当前生效引擎的密钥。
+
+    密钥解析统一交给 providers：根目录 .env → 应用目录 .env → 进程环境变量，
+    取第一个非空；因此「页面配置（写根 .env）」与「容器注入」两条路径都生效。
+    """
+    return providers.resolve_key(provider or providers.active_provider())
+
 
 
 PROMPTS_DIR = BASE_DIR / "prompts"
@@ -84,42 +87,21 @@ def safe_text(resp):
         return resp.text[:300]
 
 
-def call_deepseek(messages, model=None):
-    key = get_key()
-    if not key:
-        raise ApiError("服务端未配置 DEEPSEEK_API_KEY。请在 选词填空/.env 中设置 DEEPSEEK_API_KEY=sk-...", 503)
-    payload = {
-        "model": model or DEFAULT_MODEL,
-        "messages": messages,
-        "temperature": 0.7,
-        "response_format": {"type": "json_object"},
-        "max_tokens": 6000,
-        "stream": False,
-    }
+def call_llm(messages, model=None, temperature=0.7, max_tokens=4096):
+    """统一的模型调用入口（引擎由 providers 决定）。
+
+    model 支持三种写法：
+      · None                    → 配置里的默认引擎 + 默认模型
+      · "deepseek-v4-pro"       → 默认引擎 + 指定模型
+      · "minimax:MiniMax-M2.7"  → 指定引擎 + 指定模型（前端下拉就是这种标签）
+    端点 / 认证头 / JSON 模式 / 重试都在 providers.chat() 里收口；这里只把
+    ProviderError 翻译成本应用既有的 ApiError，路由层的错误处理不用改。
+    """
     try:
-        resp = requests.post(
-            DEEPSEEK_URL,
-            headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
-            json=payload, timeout=120,
-        )
-    except requests.RequestException as e:
-        raise ApiError("无法连接 DeepSeek（网络问题）：%s" % e, 502)
-    if resp.status_code == 401:
-        raise ApiError("DeepSeek API Key 无效 (401)，请检查 .env 中的 DEEPSEEK_API_KEY。", 401)
-    if resp.status_code == 429:
-        raise ApiError("请求过于频繁或额度不足 (429)，请稍后重试。", 429)
-    if resp.status_code == 422:
-        raise ApiError("DeepSeek 参数有误 (422)：%s" % safe_text(resp), 422)
-    if not resp.ok:
-        raise ApiError("DeepSeek 请求失败 (%s)：%s" % (resp.status_code, safe_text(resp)), 502)
-    try:
-        data = resp.json()
-    except ValueError:
-        raise ApiError("DeepSeek 返回非 JSON。", 502)
-    try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        raise ApiError("DeepSeek 返回结构异常：%s" % json.dumps(data, ensure_ascii=False)[:500], 502)
+        return providers.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
+    except providers.ProviderError as e:
+        raise ApiError(e.message, e.status)
+
 
 
 def parse_json_loose(raw):
@@ -173,7 +155,7 @@ def refine_blocks(blocks, model=None):
         % (cand_str, len(blocks), json.dumps(blocks, ensure_ascii=False))
     )
     try:
-        raw = call_deepseek(
+        raw = call_llm(
             [{"role": "system", "content": SYS_VOCAB}, {"role": "user", "content": user_msg}],
             model,
         )
@@ -265,7 +247,7 @@ def index():
 
 @app.route("/api/health")
 def health():
-    return jsonify({"ok": True, "hasKey": bool(get_key()), "model": DEFAULT_MODEL})
+    return jsonify(providers.health_payload())
 
 
 @app.route("/api/generate", methods=["POST"])
@@ -279,7 +261,7 @@ def api_generate():
     last_err = "未知错误"
     for _attempt in range(2):
         try:
-            raw = call_deepseek(
+            raw = call_llm(
                 [{"role": "system", "content": load_gen_prompt()}, {"role": "user", "content": user_msg + reminder}],
                 model,
             )

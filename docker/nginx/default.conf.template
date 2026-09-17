@@ -10,7 +10,7 @@
 #  路由：
 #    /                 → 导航面板（docker/portal/index.html）
 #    /go/<应用>/        → 302 跳到该应用的宿主机端口（端口来自 .env）
-#    /health/<应用>/    → 服务端转发到应用容器 /api/health
+#    /health/<应用>/    → 服务端转发到应用容器 /api/health（含 config 配置面板）
 #                        （浏览器看到的是同源接口，不受跨域限制）
 #    /offline/…        → 自由学习离线工具（挂载自 自由学习/）
 #
@@ -91,6 +91,13 @@ server {
         include /etc/nginx/conf.d/snippets/proxy.conf;
     }
 
+    location = /health/config/ {
+        access_log off;
+        set $up config:5562;
+        proxy_pass http://$up/api/health;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
     # ---------- 一键跳转到各应用（端口由 .env 注入，不写死在页面里）----------
     location = /go/listening/    { return 302 http://$host:${LISTENING_PORT}/; }
     location = /go/cloze/        { return 302 http://$host:${CLOZE_PORT}/; }
@@ -99,6 +106,7 @@ server {
     location = /go/translate/    { return 302 http://$host:${TRANSLATE_PORT}/; }
     location = /go/writing/      { return 302 http://$host:${WRITING_PORT}/; }
     location = /go/intensive/    { return 302 http://$host:${INTENSIVE_PORT}/; }
+    location = /go/config/       { return 302 http://$host:${CONFIG_PORT}/; }
 
     # ---------- 自由学习离线工具（纯前端 HTML，静态托管）----------
     location /offline/ {

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>引擎与密钥配置 · CET-6 全流程学习</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>⚙️ 引擎与密钥配置</h1>
+    <p class="sub">DeepSeek / MiniMax 任选 · 7 个训练应用共用这一份配置</p>
+    <div class="bar" id="statusBar">加载中…</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="notice" class="notice hidden"></div>
+
+  <section class="panel">
+    <h2>① 默认引擎与模型</h2>
+    <div class="grid2">
+      <label>默认引擎<select id="defaultProvider"></select></label>
+      <label>默认模型<select id="defaultModel"></select></label>
+    </div>
+    <div class="row">
+      <input id="defaultModelCustom" placeholder="也可以直接填自定义模型名（留空 = 用上面选的）">
+      <button class="btn primary" id="saveDefault">保存默认引擎</button>
+    </div>
+    <p class="hint">做题时各应用的设置区还能临时切「引擎 · 模型」，会覆盖这里的默认值。</p>
+  </section>
+
+  <section id="providers"></section>
+
+  <section class="panel">
+    <h2>说明</h2>
+    <ul class="notes">
+      <li><b>密钥只写不回显</b>：保存后页面只能看到「已配置 / 未配置」和来源，密钥原文不会回传浏览器。</li>
+      <li><b>存哪</b>：非机密项写入 <code id="pSettings">settings.json</code>，密钥写入 <code id="pEnv">.env</code>（两者都已被 .gitignore 忽略）。</li>
+      <li><b>何时生效</b>：各应用每次请求都重新读取，保存即生效、无需重启；Docker 部署同理（仓库以卷挂载进容器）。</li>
+      <li><b>写密钥的权限</b>：默认只允许本机部署修改。端口对局域网开放（<code>BIND_ADDR=0.0.0.0</code>）时会拒绝非本机写入，可用 <code>ALLOW_REMOTE_KEY_WRITE=1</code> 放开。</li>
+      <li><b>MiniMax 端点</b>：预设地址未用真实密钥验证过；若「测试连通性」报 404/400，把 MiniMax 控制台里的真实接口地址填到上面的「接口地址」即可。</li>
+      <li><b>JSON 模式</b>：应用要求模型输出严格 JSON。DeepSeek 默认开启；MiniMax 默认关闭（靠容错解析 + 自动重试兜底），用真实密钥测试通过后可自行勾选。</li>
+    </ul>
+  </section>
+</main>
+
+<footer>CET-6 Full-Process-Learning · 引擎与密钥配置面板（端口 5562）</footer>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

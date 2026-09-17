@@ -35,6 +35,7 @@
 - [数据格式说明](#-数据格式说明)
 - [项目结构](#-项目结构)
 - [自定义配置](#-自定义配置)
+- [AI 引擎与密钥配置](#-ai-引擎与密钥配置)
 - [常见问题](#-常见问题)
 - [技术实现](#-技术实现)
 - [AI 协作开发](#-ai-协作开发)
@@ -50,7 +51,7 @@
 - **做题训练（7 个 Flask 应用）**：六大题型应用（听力、选词填空、长篇阅读、仔细阅读、翻译、写作，各提供**出题 → 做题 → 评分 → 倒计时**闭环）+ **精读训练**（关键词生成原文 → 逐段翻译 → AI 逐段纠错，专项提升阅读与翻译能力）。
 - **自由学习（离线工具）**：词汇筛选、语境句子播放、听力做题播放器等纯前端 HTML 工具，双击即用，无需服务器。
 
-> 所有 AI 应用采用 **Python(Flask) 后端 + HTML/JS/CSS 前端** 架构：命题/评分提示词、DeepSeek 调用、JSON 校验、落盘保存都在后端完成，**API Key 只存在服务端 `.env`，绝不进入浏览器**。
+> 所有 AI 应用采用 **Python(Flask) 后端 + HTML/JS/CSS 前端** 架构：命题/评分提示词、DeepSeek 调用、JSON 校验、落盘保存都在后端完成，**API Key 只存在服务端 `.env`（可在「引擎与密钥配置」页写入，只写不回显），绝不回传浏览器**。
 
 ### 核心特性
 
@@ -63,7 +64,8 @@
 | 📊 **评分闭环** | 客观题本地秒评 + 解析；写作/翻译由 AI 按考纲评分档次（14 档）点评 |
 | ⏱️ **倒计时** | 每个应用内置限时倒计时（写作 30 / 翻译 30 / 阅读 15 / 选词 8 分钟，可调），支持严格模式自动收卷 |
 | 🔊 **智能语音** | 听力应用基于 Web Speech API，男女声分离、语速可调 |
-| 🔒 **密钥安全** | API Key 仅存服务端 `.env`，已被 `.gitignore` 排除，绝不上传 |
+| 🧠 **双引擎可选** | DeepSeek / MiniMax 任选（也可单次切换），端到端跑通；密钥与端点都能在配置页可视化配置 |
+| 🔒 **密钥安全** | API Key 存服务端 `.env`，已被 `.gitignore` 排除、绝不上传；配置页写入**只写不回显**，且默认只允许本机部署写入 |
 | 📚 **词汇合规** | 听力 / 选词填空 / 长篇阅读 / 仔细阅读 / 写作 / 精读训练 6 个应用生成后按「四六级大纲词表」扫描，DeepSeek 逐词裁定、**只替换真超纲词**（保留合法六级词），可开关 |
 
 ---
@@ -256,7 +258,7 @@ Section C：AI 生成约 400–450 词原文 + 5 道四选一题（题干 What �
 ```bash
 copy .env.example .env          # Windows；macOS / Linux 用 cp
 #   编辑 .env：DEEPSEEK_API_KEY=sk-你的密钥   （7 个应用共用这一处）
-docker compose up -d --build    # 首次约 1 分钟：构建镜像 + 启动 8 个容器
+docker compose up -d --build    # 首次约 1 分钟：构建镜像 + 启动 9 个容器（7 应用 + 配置面板 + 门户）
 ```
 
 然后打开 **总入口： http://127.0.0.1:8080**
@@ -267,13 +269,14 @@ docker compose up -d --build    # 首次约 1 分钟：构建镜像 + 启动 8 �
 | 实时状态灯 | 🟢 就绪（已配 Key）/ 🟡 服务在线但未配 Key / 🔴 未启动；由 nginx 服务端代探各应用 `/api/health`，每 15 秒自动刷新 |
 | 应用一览表 | 应用 / 目录 / 端口 / 评分方式 / 默认限时 / 对应 Section 一页看全 |
 | 离线工具托管 | `自由学习/` 的 HTML 工具也能从面板直接打开 |
+| 配置入口 | 「⚙️ 引擎与密钥配置」卡片直达配置页（端口 5562）：可视化配置两家引擎与密钥 |
 
 单个应用也可以直连（端口与手动运行完全一致）：`5555` 听力 · `5556` 选词填空 · `5557` 长篇阅读 · `5558` 仔细阅读 · `5559` 翻译 · `5560` 写作 · `5561` 精读训练。
 
 **常用命令**
 
 ```bash
-docker compose ps          # 查看 8 个容器状态（7 个应用带健康状态）
+docker compose ps          # 查看 9 个容器状态（7 应用 + 配置面板带健康状态）
 docker compose logs -f     # 查看全部日志（单独看某个：logs -f listening）
 docker compose up -d       # 改了 .env 后执行：按新配置重建容器
 docker compose restart     # 只重启进程：改了 app.py / 应用目录 .env 后用
@@ -288,12 +291,13 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1     # Windows
 # 参数：ps / logs / restart / down；restart = 重建容器（改了 .env 用它）
 ```
 
-> **五点说明**
+> **六点说明**
 > - **端口与密钥**都改仓库根目录的 `.env`：面板跳转链接由 nginx 按 `.env` 生成，改端口不必动任何代码（卡片上的端口徽标是默认值，只作对照）。
 > - **改提示词**：`prompts/*.txt` 保存即生效（应用每次请求都重读，无需重启）；改了 `.env` 执行 `docker compose up -d`（重建容器才会读入新值，`docker compose restart` 不会），改了 `app.py` 执行 `docker compose restart`。
 > - **产物落盘**：练习仍写到宿主机的 `my/`（容器把整个仓库挂载到 `/apps`），与手动运行共用同一份数据。
 > - **默认只监听 127.0.0.1**：要让手机 / 平板也能访问，把 `.env` 的 `BIND_ADDR` 改成 `0.0.0.0` 后执行 `docker compose up -d`（重建容器；或 `deploy.ps1 restart`）。应用没有登录鉴权，建议只在可信网络里使用。
 > - **Linux 宿主产物属主**：容器默认以 root 运行，`my/` 里的文件会归 root；想让它们归你，在 `.env` 里设 `APP_USER=1000:1000`（用 `id -u` / `id -g` 的真实值）后 `docker compose up -d`。Windows / macOS 无需关心。
+> - **引擎与密钥**：在配置页（总入口的「⚙️ 引擎与密钥配置」卡片）可视化配置 DeepSeek / MiniMax 的默认引擎、模型、端点、认证方式与密钥；保存即生效，密钥只写不回显，默认只允许本机写入。
 
 ### 启动一个训练应用（不用 Docker）
 
@@ -367,7 +371,8 @@ CET-6学习/
 ├── 写作/                          # ✍️ 议论文（端口 5560，AI 评分 14 档）
 ├── 精读训练/                      # 🔍 逐段翻译+AI 纠错（端口 5561，不限时）
 │   （每个训练应用文件夹结构相同：）
-│   ├── app.py                     #    Flask 后端：代理 DeepSeek + 校验 + 落盘
+│   ├── app.py                     #    Flask 后端：路由 + 校验 + 落盘（模型调用交给 providers.py）
+│   ├── providers.py               #    🧠 AI 引擎抽象层（DeepSeek / MiniMax，8 份同源）
 │   ├── requirements.txt           #    Flask, requests
 │   ├── .env.example               #    DEEPSEEK_API_KEY 配置模板（.env 本体已忽略）
 │   ├── prompts/                   #    📝 软编码命题/评分提示词（随改随生效）
@@ -390,6 +395,14 @@ CET-6学习/
 │   │   ├── default.conf.template  #      面板 / 跳转 / 状态探测 / 离线工具路由
 │   │   └── snippets/proxy.conf    #      状态探测转发参数
 │   └── portal/index.html          #    ⭐ 总入口导航面板（卡片 + 状态灯 + 应用一览表）
+│
+├── config/                        # ⚙️ 引擎与密钥配置面板（端口 5562）
+│   ├── app.py                     #    配置后端：/api/config /api/settings /api/keys /api/test
+│   ├── providers.py               #    与各应用同源
+│   ├── templates/index.html       #    配置页
+│   └── static/{app.js,style.css}  #    前端逻辑与样式
+│
+├── settings.json                  # ⚙️ 本地配置（默认引擎/模型/端点；gitignore，不入库）
 │
 ├── 材料/                          # 📂 学习资料（gitignore，不上传）
 ├── my/                            # 📂 个人学习数据（gitignore，不上传）
@@ -422,7 +435,7 @@ CET-6学习/
 
 ### 模型选择
 
-设置区「模型」下拉可选 `deepseek-v4-flash`（快·省，默认）或 `deepseek-v4-pro`（评分更细腻）；留空用 `.env` 的 `DEEPSEEK_MODEL`。亦可在 `.env` 设 `PORT` / `HOST` / `NO_OPEN_BROWSER`。
+设置区「引擎 · 模型」下拉可选：`DeepSeek · flash`（快·省）/ `DeepSeek · pro`（评分更细腻）/ `MiniMax · M2.7`（更便宜）/ `MiniMax · M3`（支持图片）；留空则用配置页保存的默认引擎。亦可在 `.env` 设 `PORT` / `HOST` / `NO_OPEN_BROWSER`，以及 `AI_PROVIDER` / `AI_MODEL` 作为兜底默认。
 
 > Docker 部署时，`DEEPSEEK_MODEL` 写在**仓库根目录 `.env`**（对 7 个应用统一生效）或**各应用目录自己的 `.env`** 里都可以（后者是 v3.4.0 修正的）。
 
@@ -431,6 +444,47 @@ CET-6学习/
 在各离线 HTML 的语音合成方法中调整 `utterance.rate`（语速）/ `pitch` / `volume`，或听力播放器的 `DIALOGUE_GAP` / `QUESTION_GAP`。
 
 ---
+
+## 🧠 AI 引擎与密钥配置
+
+出题与评分可以跑在**两家引擎**上，随时切换；配置全部可视化，不用手改文件。
+
+| 引擎 | 默认模型 | 接口地址（可在配置页改）| 适合场景 | JSON 模式 | 实测状态 |
+|:---|:---|:---|:---|:---:|:---|
+| **DeepSeek** | `deepseek-v4-flash`（快·省）/ `deepseek-v4-pro`（评分更细）| `https://api.deepseek.com/v1/chat/completions` | 命题与主观评分，中文稳 | 默认开启 | 既有链路 |
+| **MiniMax** | `MiniMax-M2.7` / `MiniMax-M3` | `https://api.minimaxi.com/v1/text/chatcompletion_v2` | 长文批量生成，单价更低 | 默认关闭 | 端点已实测可达；完整鉴权待真实密钥验证 |
+
+### 可视化配置页
+
+- **容器部署**：总入口 →「⚙️ 引擎与密钥配置」卡片（或直接 `http://127.0.0.1:5562`）
+- **裸机运行**：`cd config && pip install -r requirements.txt && python app.py`
+
+页面上能改的东西：
+
+| 配置项 | 说明 |
+|:---|:---|
+| 默认引擎 / 默认模型 | 7 个应用共用的默认值；做题时各应用设置区还能临时覆盖 |
+| 接口地址 | 两家都可改（换代理 / 换区域端点 / 填控制台里的真实地址）|
+| 认证方式 | `Authorization: Bearer <key>`（主流）或 `Authorization: <key>`（原始密钥）|
+| 要求 JSON 模式 | 是否带 `response_format: {"type":"json_object"}`；引擎不支持时后端会自动去掉再试一次 |
+| API 密钥 | 两家分别填写，写入仓库根目录 `.env`，**只写不回显** |
+| 测试连通性 | 发一个最小请求，返回耗时与真实错误（404 / 401 / 限流一眼看清）|
+
+### 配置存哪、优先级如何
+
+| 项目 | 位置 | 优先级 |
+|:---|:---|:---|
+| 密钥 | 仓库根目录 `.env` | 根 `.env` > 应用目录 `.env` > 容器/系统环境变量（取第一个非空）|
+| 非机密项（引擎 / 模型 / 端点 / 认证方式 / JSON 模式）| 仓库根目录 `settings.json`（已 gitignore）| 请求参数 > `settings.json` > 环境变量 > 预设默认 |
+| 单次做题时选的引擎 | 各应用设置区的「引擎 · 模型」下拉 | 值形如 `minimax:MiniMax-M2.7`，只影响这一次 |
+
+> 各应用**每次请求都会重新读取**配置，因此保存后立刻生效、无需重启（Docker 同样 —— 仓库以卷挂载进容器）。
+
+### 密钥安全
+
+- **只写不回显**：配置页提交后只能读到「已配置 / 未配置 + 来源」，密钥原文不会回传浏览器（接口层就不返回）。
+- **默认只允许本机部署写密钥**：端口对局域网开放（`BIND_ADDR=0.0.0.0`）时，非本机来源的密钥写入会被 **403 拒绝**（其余功能照常可用）。确需远程修改，可在 `.env` 里设 `ALLOW_REMOTE_KEY_WRITE=1` —— 那等于把改密钥的权限交给同网段所有人，仅限可信网络。
+- `.env` 与 `settings.json` 都在 `.gitignore` 里，不会上传。
 
 ## ❓ 常见问题
 
@@ -451,6 +505,18 @@ A: 命题提示词的规格（词数、题数、题干句式、干扰项类型�
 
 **Q: 偶尔生成失败？**
 A: 个别时候模型返回空内容，后端会自动重试一次；仍失败请再点一次「生成」即可。
+
+**Q: 怎么在 DeepSeek 和 MiniMax 之间切换？**
+A: 两种粒度 —— ① **全局默认**：在「引擎与密钥配置」页选默认引擎/模型（写入 `settings.json`）；② **单次做题**：在各应用设置区把「引擎 · 模型」下拉切到 `MiniMax · M2.7` 之类，只影响这一次。两家密钥都填好即可随意切。
+
+**Q: MiniMax 现在能直接用吗？**
+A: 端点已实测可达（用无效密钥请求会返回 MiniMax 原生的 `login fail: Please carry the API secret key...`，说明地址与路径正确），但**完整鉴权与 JSON 模式还没用真实密钥验证过**。首次请在配置页点「测试连通性」：若报 404/400 就把控制台里的真实接口地址填进「接口地址」；若模型不支持 `response_format`，后端会自动去掉该参数重试一次（认证头也会在 `Bearer` / 原始密钥之间自动回退）。
+
+**Q: 配置页为什么保存不了密钥？**
+A: 安全闸默认只允许「本机部署」写密钥（`BIND_ADDR` 为 `127.0.0.1` 或未设置）。若你把 `BIND_ADDR` 改成了 `0.0.0.0`（对局域网开放），非本机来源的写入会被 403 拒绝；在服务器本机打开配置页仍可写，或设 `ALLOW_REMOTE_KEY_WRITE=1` 放开（风险自担）。
+
+**Q: 密钥会被页面拿到吗？**
+A: 不会。配置接口只返回「是否已配置」与来源描述，密钥原文只被服务端读进进程用于发请求；提交密钥是单向写入（提交后输入框立即清空）。`.env` 与 `settings.json` 都被 `.gitignore` 排除。
 
 **Q: 一定要装 Docker 吗？**
 A: 不需要。Docker 只是为了「一条命令起全部 + 一个总入口导航」；只想跑单个应用，按上面「启动一个训练应用（不用 Docker）」用 Python 直接运行即可。两种方式共用同一份 `my/` 数据与提示词。
@@ -479,7 +545,8 @@ A: 默认不能（只绑 `127.0.0.1`，与直接 `python app.py` 一致）。把
 | 技术 | 用途 |
 |:---|:---|
 | Python + Flask | 六大题型应用后端（代理 DeepSeek、校验、落盘）|
-| DeepSeek API | 出题与主观题评分（OpenAI 兼容协议，`response_format: json_object`）|
+| DeepSeek API | 主力引擎：出题与主观题评分（OpenAI 兼容协议，`response_format: json_object`）|
+| MiniMax API | 备选引擎：长文生成更省（OpenAI 兼容端点，JSON 模式默认关闭、自动回退）|
 | HTML5 + CSS3 + Vanilla JS | 前端界面、状态机、倒计时、Web Speech 语音 |
 | Web Speech API | 听力应用的语音合成（TTS）|
 
@@ -507,6 +574,15 @@ A: 默认不能（只绑 `127.0.0.1`，与直接 `python app.py` 一致）。把
 ---
 
 ## 📌 版本更新日志
+
+### v3.5.0 (2026-06)
+
+- 🧠 **AI 引擎可选（DeepSeek / MiniMax）**：新增 `providers.py` 抽象层（8 份同源，沿用 `vocab.py` 的「每应用自包含」约定）—— 统一收口端点、认证头（`Bearer` / 原始密钥自动回退）、JSON 模式（不支持时自动去掉重试）与错误映射；7 个应用的 `call_deepseek()` 收敛为 15 行的 `call_llm()`
+- ⚙️ **新增「引擎与密钥配置」应用**（`config/`，端口 5562；门户面板有入口）：可视化配置默认引擎/模型、接口地址、认证方式、JSON 模式与两家 API 密钥，并提供「测试连通性」
+- 🔐 密钥**只写不回显**；默认只允许本机部署写入，端口对局域网开放时非本机写入返回 403（可用 `ALLOW_REMOTE_KEY_WRITE=1` 放开）
+- 🔤 各应用设置区的「模型」下拉升级为「引擎 · 模型」两级标签（值形如 `minimax:MiniMax-M2.7`），做题时可临时切引擎
+- 🐳 Docker：新增 `MINIMAX_API_KEY` / `CONFIG_PORT` / `ALLOW_REMOTE_KEY_WRITE` 配置；部署容器数 8 → 9（7 应用 + 配置面板 + 门户）
+- 📝 配置优先级：密钥「根 `.env` > 应用 `.env` > 环境变量」；引擎/模型「请求参数 > `settings.json` > 环境变量 > 预设」，各应用每次请求重读、保存即生效
 
 ### v3.4.0 (2026-06)
 

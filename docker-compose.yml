@@ -37,6 +37,10 @@ x-app: &app
     DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-}
     CET_VOCAB_CHECK: ${CET_VOCAB_CHECK:-}
+    # MiniMax 引擎的密钥（与 DeepSeek 可二选一、也可都配；留空同样被入口脚本清理）
+    MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+    # 允许非本机（局域网）在配置页写密钥（默认关；开启前请确认网络可信）
+    ALLOW_REMOTE_KEY_WRITE: ${ALLOW_REMOTE_KEY_WRITE:-}
   volumes:
     # 整个仓库挂到 /apps，好处：
     #   · 改 prompts/*.txt 即时生效（应用每次请求都重读）
@@ -77,6 +81,7 @@ services:
       TRANSLATE_PORT: ${TRANSLATE_PORT:-5559}
       WRITING_PORT: ${WRITING_PORT:-5560}
       INTENSIVE_PORT: ${INTENSIVE_PORT:-5561}
+      CONFIG_PORT: ${CONFIG_PORT:-5562}
     volumes:
       - ./docker/portal:/usr/share/nginx/html:ro
       - ./docker/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
@@ -90,11 +95,26 @@ services:
       translate: { condition: service_started }
       writing: { condition: service_started }
       intensive: { condition: service_started }
+      config: { condition: service_started }
 
   # ==========================================================
   #  七个训练应用
   #  容器内端口固定（应用自己的默认端口），宿主机端口可在 .env 改
   # ==========================================================
+
+  # ==========================================================
+  #  ⚙️ 引擎与密钥配置面板（可视化配置 DeepSeek / MiniMax 与密钥）
+  #  http://127.0.0.1:5562 —— 门户面板上也有入口
+  # ==========================================================
+  config:
+    <<: *app
+    container_name: cet6-config
+    working_dir: /apps/config
+    environment:
+      <<: *app-env
+      PORT: "5562"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${CONFIG_PORT:-5562}:5562"
 
   # 🎧 听力专项训练
   listening:

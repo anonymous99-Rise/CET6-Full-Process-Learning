@@ -25,6 +25,7 @@ set -e
 [ -n "${DEEPSEEK_API_KEY:-}" ] || unset DEEPSEEK_API_KEY
 [ -n "${DEEPSEEK_MODEL:-}" ]   || unset DEEPSEEK_MODEL
 [ -n "${CET_VOCAB_CHECK:-}" ]  || unset CET_VOCAB_CHECK
+[ -n "${MINIMAX_API_KEY:-}" ]  || unset MINIMAX_API_KEY
 
 PORT="${PORT:-8000}"
 HOST="${HOST:-0.0.0.0}"
