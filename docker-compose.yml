@@ -1,0 +1,174 @@
+# ============================================================
+#  CET-6 全流程学习 · Docker Compose 一键部署
+#
+#  一条命令起全部：      docker compose up -d --build
+#  总入口（导航面板）：  http://127.0.0.1:8080
+#  七个应用直连：        http://127.0.0.1:5555 ~ :5561（与 README 一致）
+#  查看状态 / 日志：     docker compose ps  ·  docker compose logs -f
+#  停止：                docker compose down
+#
+#  所有可变配置都集中在仓库根目录的 .env（不存在则用本文件里的默认值）。
+#  端口只写在 .env 一处：面板的跳转链接走 nginx 302（见
+#  docker/nginx/default.conf.template），改了端口面板链接也不会失效。
+# ============================================================
+
+name: cet6
+
+# ------------------------------------------------------------
+#  7 个训练应用的公共部分：镜像 / 环境变量 / 挂载 / 健康检查
+#  差异只有三处：container_name、working_dir、PORT（+ 宿主机端口映射）
+# ------------------------------------------------------------
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: cet6-flask:latest
+  # 容器运行身份：默认 0:0（root）—— Windows / macOS 的 Docker Desktop 下最省事。
+  # Linux 宿主若希望 my/ 里生成的练习归当前用户（而不是 root），在 .env 里设
+  #   APP_USER=1000:1000        # 用 id -u 与 id -g 的真实值
+  user: "${APP_USER:-0:0}"
+  restart: unless-stopped
+  environment: &app-env
+    # 容器内必须绑 0.0.0.0，否则宿主机访问不到（应用默认绑 127.0.0.1）
+    HOST: 0.0.0.0
+    # 容器里不需要自动弹出浏览器
+    NO_OPEN_BROWSER: "1"
+    # 留空时容器入口脚本会 unset，交由各应用目录自己的 .env 兜底
+    DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-}
+    CET_VOCAB_CHECK: ${CET_VOCAB_CHECK:-}
+  volumes:
+    # 整个仓库挂到 /apps，好处：
+    #   · 改 prompts/*.txt 即时生效（应用每次请求都重读）
+    #   · 改 .env 后执行 docker compose up -d 重建容器即生效；
+    #     改 app.py 后 docker compose restart 即可（restart 不会读入根 .env 的新值）
+    #   · 生成的练习直接落在宿主机的 my/（无需额外挂载）
+    #   · 材料/四六级大纲词汇.txt 若存在，容器内自动可用
+    - ./:/apps
+  healthcheck:
+    test: ["CMD", "python", "/opt/cet6/healthcheck.py"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 15s
+
+services:
+
+  # ==========================================================
+  #  总入口：导航面板 + 应用状态探测 + 离线工具托管
+  #  你只需要记这一个地址：http://127.0.0.1:8080
+  # ==========================================================
+  portal:
+    # nginx 官方镜像，跟随 stable 分支（自动获得安全更新）；
+    # 想锁定版本可改成具体版本号，如 nginx:1.28-alpine
+    image: nginx:stable-alpine
+    container_name: cet6-portal
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${PORTAL_PORT:-8080}:80"
+    environment:
+      # 传给 nginx 的 envsubst 模板：/go/ 跳转用的真实端口（来自 .env）
+      # ⚠️ 这 7 个变量一个都不能删 —— 模板里的 ${...} 若没有同名环境变量会原样
+      #    残留，nginx 会因配置非法而起不来（默认值由这里的 :- 兜底保证存在）
+      LISTENING_PORT: ${LISTENING_PORT:-5555}
+      CLOZE_PORT: ${CLOZE_PORT:-5556}
+      LONGREAD_PORT: ${LONGREAD_PORT:-5557}
+      CAREFULREAD_PORT: ${CAREFULREAD_PORT:-5558}
+      TRANSLATE_PORT: ${TRANSLATE_PORT:-5559}
+      WRITING_PORT: ${WRITING_PORT:-5560}
+      INTENSIVE_PORT: ${INTENSIVE_PORT:-5561}
+    volumes:
+      - ./docker/portal:/usr/share/nginx/html:ro
+      - ./docker/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./docker/nginx/snippets:/etc/nginx/conf.d/snippets:ro
+      - ./自由学习:/srv/offline:ro
+    depends_on:
+      listening: { condition: service_started }
+      cloze: { condition: service_started }
+      longread: { condition: service_started }
+      carefulread: { condition: service_started }
+      translate: { condition: service_started }
+      writing: { condition: service_started }
+      intensive: { condition: service_started }
+
+  # ==========================================================
+  #  七个训练应用
+  #  容器内端口固定（应用自己的默认端口），宿主机端口可在 .env 改
+  # ==========================================================
+
+  # 🎧 听力专项训练
+  listening:
+    <<: *app
+    container_name: cet6-listening
+    working_dir: /apps/听力专项训练
+    environment:
+      <<: *app-env
+      PORT: "5555"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${LISTENING_PORT:-5555}:5555"
+
+  # 🔤 选词填空
+  cloze:
+    <<: *app
+    container_name: cet6-cloze
+    working_dir: /apps/选词填空
+    environment:
+      <<: *app-env
+      PORT: "5556"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${CLOZE_PORT:-5556}:5556"
+
+  # 📄 长篇阅读
+  longread:
+    <<: *app
+    container_name: cet6-longread
+    working_dir: /apps/长篇阅读
+    environment:
+      <<: *app-env
+      PORT: "5557"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${LONGREAD_PORT:-5557}:5557"
+
+  # 📖 仔细阅读
+  carefulread:
+    <<: *app
+    container_name: cet6-carefulread
+    working_dir: /apps/仔细阅读
+    environment:
+      <<: *app-env
+      PORT: "5558"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${CAREFULREAD_PORT:-5558}:5558"
+
+  # 🌐 翻译
+  translate:
+    <<: *app
+    container_name: cet6-translate
+    working_dir: /apps/翻译
+    environment:
+      <<: *app-env
+      PORT: "5559"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${TRANSLATE_PORT:-5559}:5559"
+
+  # ✍️ 写作
+  writing:
+    <<: *app
+    container_name: cet6-writing
+    working_dir: /apps/写作
+    environment:
+      <<: *app-env
+      PORT: "5560"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${WRITING_PORT:-5560}:5560"
+
+  # 🔍 精读训练
+  intensive:
+    <<: *app
+    container_name: cet6-intensive
+    working_dir: /apps/精读训练
+    environment:
+      <<: *app-env
+      PORT: "5561"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${INTENSIVE_PORT:-5561}:5561"

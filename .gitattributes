@@ -1,0 +1,15 @@
+# ============================================================
+#  Windows 下 core.autocrlf=true 会把文本文件检出为 CRLF，
+#  而下面这些文件是在 Linux 容器里「执行 / 解析」的，必须保持 LF：
+#    *.sh       → CRLF 会报 exec format error: /bin/sh^M: bad interpreter
+#    nginx 配置 → \r 会被当成指令参数的一部分，容器起不来
+#    Dockerfile → RUN 与续行可能因 \r 解析异常
+#  （各应用 .py 不受影响：Python 两种换行都能读，故未纳入本文件。）
+# ============================================================
+
+*.sh          text eol=lf
+*.conf        text eol=lf
+*.template    text eol=lf
+Dockerfile    text eol=lf
+*.yml         text eol=lf
+.dockerignore text eol=lf

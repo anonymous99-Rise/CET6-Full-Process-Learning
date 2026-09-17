@@ -1,0 +1,40 @@
+# ============================================================
+#  Docker 构建上下文排除规则
+#  ① 密钥绝不进镜像（容器里用的是 bind 挂载出来的 .env）
+#  ② 个人数据 / 本地资料不打进镜像（运行时挂载即可用）
+#  ③ 镜像更小、构建更快
+# ============================================================
+
+# —— 密钥：绝不进镜像 ——
+.env
+*.env
+**/.env
+
+# —— 个人学习数据与本地资料（体积大、涉版权，运行时挂载）——
+my/
+材料/
+
+# —— 版本库与 Python 缓存 ——
+.git/
+.gitignore
+.gitattributes
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# —— 编辑器 / 系统临时文件 ——
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# —— Docker 自身文件（运行时用，不必进镜像）——
+Dockerfile
+.dockerignore
+docker-compose*.yml

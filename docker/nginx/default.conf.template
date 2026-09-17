@@ -1,0 +1,110 @@
+# ============================================================
+#  CET-6 全流程学习 · 总入口（导航面板）—— nginx 配置模板
+#
+#  这是一个 envsubst 模板：官方 nginx 镜像启动时会用「容器里的环境变量」
+#  替换掉 ${...}（端口值由 docker-compose 从根目录 .env 传入），因此面板的
+#  跳转链接与实际端口永远不会脱节 —— 改端口只需改 .env。
+#  注意：只替换真实存在的环境变量，nginx 自身的 $host / $uri 等运行时变量
+#        不受影响（这点由官方 entrypoint 的 envsubst 变量白名单保证）。
+#
+#  路由：
+#    /                 → 导航面板（docker/portal/index.html）
+#    /go/<应用>/        → 302 跳到该应用的宿主机端口（端口来自 .env）
+#    /health/<应用>/    → 服务端转发到应用容器 /api/health
+#                        （浏览器看到的是同源接口，不受跨域限制）
+#    /offline/…        → 自由学习离线工具（挂载自 自由学习/）
+#
+#  端口说明：
+#    · /go/ 用的是「宿主机端口」——由 .env 经 envsubst 注入，可随意改；
+#    · /health/ 用的是「容器内端口」——固定值，与 docker-compose.yml 里各服务的
+#      PORT 一致。改 .env 只改宿主机映射、不影响容器内端口，所以状态探测始终有效。
+# ============================================================
+
+# Docker 内置 DNS + 短 TTL：应用容器重建换 IP 后 10 秒内自动重新解析。
+# 不加这条，nginx 会一直拿着启动时解析到的旧 IP，面板状态灯会永远是红的。
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+server {
+    listen 80;
+    server_name _;
+    charset utf-8;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # ---------- 导航面板 ----------
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location = /favicon.ico {
+        return 204;
+    }
+
+    # ---------- 应用状态探测（服务端转发 → 浏览器同源，无 CORS 问题）----------
+    location = /health/listening/ {
+        access_log off;
+        set $up listening:5555;
+        proxy_pass http://$up/api/health;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
+    location = /health/cloze/ {
+        access_log off;
+        set $up cloze:5556;
+        proxy_pass http://$up/api/health;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
+    location = /health/longread/ {
+        access_log off;
+        set $up longread:5557;
+        proxy_pass http://$up/api/health;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
+    location = /health/carefulread/ {
+        access_log off;
+        set $up carefulread:5558;
+        proxy_pass http://$up/api/health;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
+    location = /health/translate/ {
+        access_log off;
+        set $up translate:5559;
+        proxy_pass http://$up/api/health;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
+    location = /health/writing/ {
+        access_log off;
+        set $up writing:5560;
+        proxy_pass http://$up/api/health;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
+    location = /health/intensive/ {
+        access_log off;
+        set $up intensive:5561;
+        proxy_pass http://$up/api/health;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
+    # ---------- 一键跳转到各应用（端口由 .env 注入，不写死在页面里）----------
+    location = /go/listening/    { return 302 http://$host:${LISTENING_PORT}/; }
+    location = /go/cloze/        { return 302 http://$host:${CLOZE_PORT}/; }
+    location = /go/longread/     { return 302 http://$host:${LONGREAD_PORT}/; }
+    location = /go/carefulread/  { return 302 http://$host:${CAREFULREAD_PORT}/; }
+    location = /go/translate/    { return 302 http://$host:${TRANSLATE_PORT}/; }
+    location = /go/writing/      { return 302 http://$host:${WRITING_PORT}/; }
+    location = /go/intensive/    { return 302 http://$host:${INTENSIVE_PORT}/; }
+
+    # ---------- 自由学习离线工具（纯前端 HTML，静态托管）----------
+    location /offline/ {
+        alias /srv/offline/;
+        autoindex on;
+        autoindex_exact_size off;
+        charset utf-8;
+    }
+}

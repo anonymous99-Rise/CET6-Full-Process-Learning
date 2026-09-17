@@ -31,6 +31,7 @@
   - [精读训练](#-精读训练)
 - [自由学习：离线工具](#-自由学习离线工具)
 - [快速开始](#-快速开始)
+  - [Docker 一键部署](#docker-一键部署推荐)
 - [数据格式说明](#-数据格式说明)
 - [项目结构](#-项目结构)
 - [自定义配置](#-自定义配置)
@@ -55,6 +56,8 @@
 
 | 特性 | 说明 |
 |:---|:---|
+| 🐳 **一键部署** | `docker compose up -d --build` 一条命令起全部（7 个应用 + 总入口面板）；密钥 / 端口集中在根目录 `.env` |
+| 🧭 **总入口导航** | 一页直达七个应用与离线工具，带实时状态灯（🟢就绪 / 🟡未配 Key / 🔴未启动）与应用一览表，不用记端口 |
 | 🎯 **全题型覆盖** | 听力 / 选词填空 / 长篇阅读 / 仔细阅读 / 翻译 / 写作六大题型，各一个独立训练应用 |
 | 🤖 **AI 出题** | DeepSeek 现场生成与真题"相差无几"的题目，规格由 49 套真题（2019–2024）逐项统计校准 |
 | 📊 **评分闭环** | 客观题本地秒评 + 解析；写作/翻译由 AI 按考纲评分档次（14 档）点评 |
@@ -240,12 +243,59 @@ Section C：AI 生成约 400–450 词原文 + 5 道四选一题（题干 What �
 
 | 要求 | 说明 |
 |:---|:---|
+| Docker（可选）| 想「一条命令起全部 + 一个总入口页面」就用 Docker Desktop（需含 Compose v2）；不装 Docker 也能用，按下面的手动方式运行 |
 | Python | 3.8+（运行六大题型训练应用的后端）|
 | 浏览器 | Chrome / Edge（Web Speech API 与现代 JS）|
 | DeepSeek API Key | 训练应用出题/评分需要（听力/翻译/写作评分必用）；获取：https://platform.deepseek.com/ |
 | 离线工具 | 仅需浏览器，无需 Python 与 Key |
 
-### 启动一个训练应用
+### Docker 一键部署（推荐）
+
+一条命令把 7 个训练应用 + **总入口导航面板** 全部拉起来，不用开 7 个终端、也不用记端口：
+
+```bash
+copy .env.example .env          # Windows；macOS / Linux 用 cp
+#   编辑 .env：DEEPSEEK_API_KEY=sk-你的密钥   （7 个应用共用这一处）
+docker compose up -d --build    # 首次约 1 分钟：构建镜像 + 启动 8 个容器
+```
+
+然后打开 **总入口： http://127.0.0.1:8080**
+
+| 面板能力 | 说明 |
+|:---|:---|
+| 一页直达 | 七个应用 + 离线工具全部列在一页，点卡片直接打开（新标签页），不用记端口 |
+| 实时状态灯 | 🟢 就绪（已配 Key）/ 🟡 服务在线但未配 Key / 🔴 未启动；由 nginx 服务端代探各应用 `/api/health`，每 15 秒自动刷新 |
+| 应用一览表 | 应用 / 目录 / 端口 / 评分方式 / 默认限时 / 对应 Section 一页看全 |
+| 离线工具托管 | `自由学习/` 的 HTML 工具也能从面板直接打开 |
+
+单个应用也可以直连（端口与手动运行完全一致）：`5555` 听力 · `5556` 选词填空 · `5557` 长篇阅读 · `5558` 仔细阅读 · `5559` 翻译 · `5560` 写作 · `5561` 精读训练。
+
+**常用命令**
+
+```bash
+docker compose ps          # 查看 8 个容器状态（7 个应用带健康状态）
+docker compose logs -f     # 查看全部日志（单独看某个：logs -f listening）
+docker compose up -d       # 改了 .env 后执行：按新配置重建容器
+docker compose restart     # 只重启进程：改了 app.py / 应用目录 .env 后用
+docker compose down        # 停止并移除容器（my/ 与 .env 都会保留）
+```
+
+也可以直接用一键脚本（做同样的事，并额外检查 Docker、自动生成 `.env`、打印总入口地址）：
+
+```bash
+powershell -ExecutionPolicy Bypass -File deploy.ps1     # Windows
+./deploy.sh                                             # macOS / Linux（首次 chmod +x deploy.sh）
+# 参数：ps / logs / restart / down；restart = 重建容器（改了 .env 用它）
+```
+
+> **五点说明**
+> - **端口与密钥**都改仓库根目录的 `.env`：面板跳转链接由 nginx 按 `.env` 生成，改端口不必动任何代码（卡片上的端口徽标是默认值，只作对照）。
+> - **改提示词**：`prompts/*.txt` 保存即生效（应用每次请求都重读，无需重启）；改了 `.env` 执行 `docker compose up -d`（重建容器才会读入新值，`docker compose restart` 不会），改了 `app.py` 执行 `docker compose restart`。
+> - **产物落盘**：练习仍写到宿主机的 `my/`（容器把整个仓库挂载到 `/apps`），与手动运行共用同一份数据。
+> - **默认只监听 127.0.0.1**：要让手机 / 平板也能访问，把 `.env` 的 `BIND_ADDR` 改成 `0.0.0.0` 后执行 `docker compose up -d`（重建容器；或 `deploy.ps1 restart`）。应用没有登录鉴权，建议只在可信网络里使用。
+> - **Linux 宿主产物属主**：容器默认以 root 运行，`my/` 里的文件会归 root；想让它们归你，在 `.env` 里设 `APP_USER=1000:1000`（用 `id -u` / `id -g` 的真实值）后 `docker compose up -d`。Windows / macOS 无需关心。
+
+### 启动一个训练应用（不用 Docker）
 
 ```bash
 cd 仔细阅读                         # 进入任一题型文件夹
@@ -332,9 +382,23 @@ CET-6学习/
 │   ├── 提示词.txt                 #    时间分配与答题策略
 │   └── 男女声列表.txt             #    TTS 语音名称参考
 │
+├── docker/                        # 🐳 容器化部署
+│   ├── requirements.txt           #    镜像依赖（与各应用 requirements.txt 一致）
+│   ├── start.sh                   #    容器入口：清理空值环境变量 + 启动 app.py
+│   ├── healthcheck.py             #    容器健康检查（探 /api/health）
+│   ├── nginx/                     #    nginx 配置模板（端口由 .env 注入）
+│   │   ├── default.conf.template  #      面板 / 跳转 / 状态探测 / 离线工具路由
+│   │   └── snippets/proxy.conf    #      状态探测转发参数
+│   └── portal/index.html          #    ⭐ 总入口导航面板（卡片 + 状态灯 + 应用一览表）
+│
 ├── 材料/                          # 📂 学习资料（gitignore，不上传）
 ├── my/                            # 📂 个人学习数据（gitignore，不上传）
 │
+├── Dockerfile                     # 🐳 训练应用镜像（7 个应用共用一份）
+├── docker-compose.yml             # 🐳 一键部署编排（7 应用 + 总入口面板 = 8 个容器）
+├── .env.example                   # 🐳 部署配置模板（密钥 / 端口 / 监听地址）
+├── deploy.ps1                     # 🐳 Windows 一键脚本
+├── deploy.sh                      # 🐳 macOS / Linux 一键脚本
 ├── .gitignore                     # Git 忽略配置
 ├── LICENSE                        # MIT 开源许可
 └── README.md                      # 本文档
@@ -360,6 +424,8 @@ CET-6学习/
 
 设置区「模型」下拉可选 `deepseek-v4-flash`（快·省，默认）或 `deepseek-v4-pro`（评分更细腻）；留空用 `.env` 的 `DEEPSEEK_MODEL`。亦可在 `.env` 设 `PORT` / `HOST` / `NO_OPEN_BROWSER`。
 
+> Docker 部署时，`DEEPSEEK_MODEL` 写在**仓库根目录 `.env`**（对 7 个应用统一生效）或**各应用目录自己的 `.env`** 里都可以（后者是 v3.4.0 修正的）。
+
 ### 语音参数（离线工具）
 
 在各离线 HTML 的语音合成方法中调整 `utterance.rate`（语速）/ `pitch` / `volume`，或听力播放器的 `DIALOGUE_GAP` / `QUESTION_GAP`。
@@ -378,13 +444,31 @@ A: Key 仅存于各应用文件夹的 `.env`（服务端），已被 `.gitignore
 A: 应用仍可启动，页面顶部提示「Key 未配置」；出题/评分请求返回清晰错误。客观题应用（选词/长篇/仔细）的做题界面需先出题，故仍需 Key 生成题目。
 
 **Q: 一次能开几个应用？**
-A: 每个应用占一个端口（5555–5560），可同时开多个；学习时一般一次开一个即可。
+A: 每个应用占一个端口（5555–5561），可同时开多个；学习时一般一次开一个即可。
 
 **Q: 生成的题目与真题一致吗？**
 A: 命题提示词的规格（词数、题数、题干句式、干扰项类型）由 49 套真题（2019–2024）逐项统计得出，确保"相差无几"。
 
 **Q: 偶尔生成失败？**
 A: 个别时候模型返回空内容，后端会自动重试一次；仍失败请再点一次「生成」即可。
+
+**Q: 一定要装 Docker 吗？**
+A: 不需要。Docker 只是为了「一条命令起全部 + 一个总入口导航」；只想跑单个应用，按上面「启动一个训练应用（不用 Docker）」用 Python 直接运行即可。两种方式共用同一份 `my/` 数据与提示词。
+
+**Q: 面板上的状态灯是什么意思？**
+A: 🟢 服务在线且已配置 Key（可正常出题 / 评分）；🟡 服务在线但没配 Key（页面能打开，出题会提示未配置）；🔴 没启动（可能还在启动中，或容器异常，用 `docker compose ps` / `docker compose logs` 排查）。面板每 15 秒自动刷新一次，也可点「刷新状态」。
+
+**Q: 端口被占用了怎么办？**
+A: 只改仓库根目录 `.env` 里对应的端口变量（如 `LISTENING_PORT=6555`），再 `docker compose up -d`（或 `deploy.ps1 restart`）。面板跳转链接由 nginx 按 `.env` 实时生成，不需要改代码；卡片上的端口徽标是默认值、仅供对照。
+
+**Q: 改了 prompts/ 或 .env，要重新 build 吗？**
+A: 都不用重新 build。`prompts/*.txt` 保存即生效（应用每次请求都重读）；`.env` 改完执行 `docker compose up -d`（或 `deploy.ps1 restart` / `./deploy.sh restart`，脚本内部就是重建容器）—— 注意 `docker compose restart` 只重启进程、**不会**读入根目录 `.env` 的新值；只有改了 `Dockerfile` 或 `docker/requirements.txt` 才需要 `docker compose up -d --build`。
+
+**Q: Docker 版的数据存在哪？**
+A: 与手动运行完全相同 —— 练习落在仓库的 `my/`（容器把整个仓库挂载进 `/apps`），配置文件就是你自己的 `.env`。`docker compose down` 不会删除它们。
+
+**Q: 局域网里其他设备能访问吗？**
+A: 默认不能（只绑 `127.0.0.1`，与直接 `python app.py` 一致）。把 `.env` 的 `BIND_ADDR` 改成 `0.0.0.0` 后 `docker compose up -d`（重建容器），手机 / 平板即可打开总入口。注意应用没有登录鉴权，局域网内任何人都能用你的 Key 出题，建议只在可信网络里短期使用。
 
 ---
 
@@ -423,6 +507,16 @@ A: 个别时候模型返回空内容，后端会自动重试一次；仍失败�
 ---
 
 ## 📌 版本更新日志
+
+### v3.4.0 (2026-06)
+
+- 🐳 **Docker Compose 一键部署**：`docker compose up -d --build` 一条命令拉起 7 个训练应用 + 总入口面板（共 8 个容器）；源码以卷挂载，改 `prompts/` 即时生效、练习照旧落到 `my/`
+- 🧭 **总入口导航面板**（`http://127.0.0.1:8080`）：一页直达七个应用与离线工具；含实时状态灯（🟢就绪 / 🟡未配 Key / 🔴未启动，nginx 服务端代探 `/api/health`）与应用一览表（应用 / 目录 / 端口 / 评分方式 / 默认限时 / 对应 Section）
+- 🔗 面板跳转由 nginx 按 `.env` 端口 302，改端口不会导致面板链接失效（`.env` 是唯一的端口来源）
+- 🔐 配置集中到根目录 `.env`（密钥 / 端口 / 监听地址一处配齐，7 个应用共用），同时保留各应用目录自有 `.env` 作为兜底
+- 🧰 新增 `deploy.ps1` / `deploy.sh` 一键脚本、容器健康检查与 `.dockerignore`（密钥不进镜像）
+- 🐛 **修正 `DEEPSEEK_MODEL` 的读取时机**（7 个应用）：原先把 `DEFAULT_MODEL` 读在 `load_env()` 之前，导致「各应用目录 `.env` 里的 `DEEPSEEK_MODEL`」被静默忽略；现移到 `load_env()` 之后，两条配置路径都生效
+- 🧑💻 **容器运行身份可选**：`.env` 里设 `APP_USER=1000:1000`（Linux 宿主）即可让 `my/` 产物归当前用户；默认仍是 root（Windows / macOS 最省事）
 
 ### v3.3.0 (2026-06)
 
