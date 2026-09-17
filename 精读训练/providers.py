@@ -154,7 +154,11 @@ def set_key(provider, value):
     cfg = PROVIDERS.get(provider)
     if not cfg:
         raise ProviderError("未知引擎：%s" % provider, 400)
-    set_env_value(ROOT_ENV_FILE, cfg["key_env"], (value or "").strip())
+    v = (value or "").strip().strip('"').strip("'").strip()
+    # 常见粘贴事故：把「Bearer 」一起粘进密钥框 → 发出去会变成 "Bearer Bearer sk-..."
+    if v.lower().startswith("bearer "):
+        v = v[7:].strip()
+    set_env_value(ROOT_ENV_FILE, cfg["key_env"], v)
 
 
 # ----------------------------------------------------------------------
@@ -299,6 +303,7 @@ def available_config():
             "key_env": cfg["key_env"],
             "has_key": bool(resolve_key(pid)),
             "key_source": key_source(pid),
+            "key_hint": mask_key(resolve_key(pid)),
             "json_mode": bool(st.get("json_mode", {}).get(pid, cfg["json_mode"])),
             "hint": cfg["hint"],
         })
@@ -314,6 +319,31 @@ def available_config():
 # ----------------------------------------------------------------------
 # 调用
 # ----------------------------------------------------------------------
+def mask_key(key):
+    """把密钥转成可安全展示的形态：前 3 位 + 后 4 位 + 长度（绝不回传原文）。"""
+    k = (key or "").strip()
+    if not k:
+        return ""
+    if len(k) <= 8:
+        return "（长度 %d）" % len(k)
+    return "%s…%s（长度 %d）" % (k[:3], k[-4:], len(k))
+
+
+def _hint_from_message(msg):
+    """根据上游报错给出「下一步怎么办」，避免用户面对 401 无从下手。"""
+    low = (msg or "").lower()
+    if "auth header format" in low or "carry the api secret key" in low or "authorization" in low:
+        return ("上游要求 Authorization: Bearer sk-... 形式 —— 请到配置页把该引擎的「认证方式」"
+                "改为 Bearer（主流）；若密钥是从别处复制来的，确认没有把「Bearer 」一起粘进密钥框。")
+    if "invalid" in low and ("api key" in low or "key" in low or "token" in low):
+        return "密钥本身无效：请确认复制完整、没有多余空格或换行，或在控制台重新生成一个。"
+    if "login fail" in low:
+        return "上游拒绝鉴权：确认密钥与端点匹配（国内站 / 国际站端点不同），并点「测试连通性」看原始报错。"
+    if "response_format" in low or ("json" in low and "support" in low):
+        return "上游不支持 JSON 模式：在配置页取消勾选「要求 JSON 模式」即可（后端也会自动去掉重试）。"
+    return ""
+
+
 def _classify(data, status_code):
     """把返回体判成 ("ok", content) / ("auth", 原因) / ("error", 原因)。"""
     if not isinstance(data, dict):
@@ -390,7 +420,14 @@ def chat(messages, model=None, temperature=0.7, max_tokens=4096, timeout=120):
         try:
             data = resp.json()
         except ValueError:
-            raise ProviderError("%s 返回非 JSON (%s)：%s" % (label, resp.status_code, resp.text[:200]), 502)
+            body = (resp.text or "").strip()[:200]
+            low = body.lower()
+            # 有的上游对鉴权失败返回「纯文本 401/403」，例如 DeepSeek 的
+            # "Authentication Fails (auth header format should be Bearer sk-...)"。
+            # 这类响应必须归为「认证失败」，否则不会触发换一种认证头重试。
+            if resp.status_code in (401, 403) or "bearer" in low or "auth" in low or "api key" in low:
+                return "auth", "HTTP %s：%s" % (resp.status_code, body)
+            raise ProviderError("%s 返回非 JSON (%s)：%s" % (label, resp.status_code, body), 502)
         kind, payload_or_msg = _classify(data, resp.status_code)
         if kind == "ok":
             return "ok", payload_or_msg
@@ -409,17 +446,29 @@ def chat(messages, model=None, temperature=0.7, max_tokens=4096, timeout=120):
 
     last = ""
     seen = set()
+    tried = []
+    auth_failed = False
     for s, wj in plan:
         if (s, wj) in seen:
             continue
         seen.add((s, wj))
+        tried.append(s)
         kind, msg = attempt(s, wj)
         if kind == "ok":
             return msg
         last = msg
+        if kind == "auth":
+            auth_failed = True
+            continue          # 认证失败 → 换另一种认证头 / 去掉 JSON 模式再试
         if kind == "error":
             raise ProviderError("%s 调用失败：%s" % (label, msg), 502)
-    raise ProviderError("%s 调用失败：%s" % (label, last), 401 if "login fail" in last.lower() else 502)
+
+    styles = "、".join(dict.fromkeys(tried))
+    detail = "%s 调用失败（已尝试认证方式：%s）：%s" % (label, styles, last)
+    hint = _hint_from_message(last)
+    if hint:
+        detail += "\n提示：" + hint
+    raise ProviderError(detail, 401 if auth_failed else 502)
 
 
 def test(provider=None, model=None, timeout=30):
@@ -430,7 +479,8 @@ def test(provider=None, model=None, timeout=30):
     started = time.time()
     out = {"provider": prov, "model": model_name, "endpoint": get_endpoint(prov, st),
            "auth_style": get_auth_style(prov, st),
-           "has_key": bool(resolve_key(prov)), "key_source": key_source(prov), "ok": False}
+           "has_key": bool(resolve_key(prov)), "key_source": key_source(prov),
+           "key_hint": mask_key(resolve_key(prov)), "ok": False}
     if not out["has_key"]:
         out["error"] = "未配置密钥（%s）" % (PROVIDERS.get(prov) or {}).get("key_env", "")
         out["elapsed_ms"] = int((time.time() - started) * 1000)
