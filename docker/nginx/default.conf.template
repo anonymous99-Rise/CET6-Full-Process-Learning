@@ -98,6 +98,21 @@ server {
         include /etc/nginx/conf.d/snippets/proxy.conf;
     }
 
+    # ---------- 配置面板接口（门户上的「全局默认引擎」开关用；服务端转发，浏览器同源）----------
+    location = /settings-api/config {
+        access_log off;
+        set $up config:5562;
+        proxy_pass http://$up/api/config;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
+    location = /settings-api/settings {
+        access_log off;
+        set $up config:5562;
+        proxy_pass http://$up/api/settings;
+        include /etc/nginx/conf.d/snippets/proxy.conf;
+    }
+
     # ---------- 一键跳转到各应用（端口由 .env 注入，不写死在页面里）----------
     location = /go/listening/    { return 302 http://$host:${LISTENING_PORT}/; }
     location = /go/cloze/        { return 302 http://$host:${CLOZE_PORT}/; }

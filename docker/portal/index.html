@@ -99,6 +99,15 @@
   /* ---------- 页脚 ---------- */
   footer{border-top:1px solid var(--line); padding:20px 0 34px; color:#8b93a8; font-size:12.8px; text-align:center}
   .noscript{margin:0 0 24px; padding:14px 16px; border-radius:12px; background:#fff7e6; border:1px solid #f6dfae; color:#7a5a12; font-size:13.5px}
+  /* ---------- 全局默认引擎开关 ---------- */
+  .engine-switch{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:13px 16px; margin-bottom:14px}
+  .switch-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .switch-label{font-size:13.5px; font-weight:600; color:#4d5680}
+  .engine-switch select{font:inherit; font-size:13.5px; padding:7px 10px; border:1px solid var(--line);
+    border-radius:9px; background:#fff; color:var(--ink)}
+  .btn-engine{font:inherit; font-size:13.5px; cursor:pointer; padding:7px 14px; border-radius:9px;
+    border:1px solid transparent; background:linear-gradient(135deg,var(--brand1),var(--brand2)); color:#fff; transition:.15s}
+  .btn-engine:hover{filter:brightness(1.07)}
   .noscript a{color:#7a5a12}
 </style>
 </head>
@@ -127,6 +136,7 @@
 
   <section>
     <h2>⚙️ 配置 <span class="count">7 个应用共用这一份</span></h2>
+    <div class="engine-switch" id="engine-switch"><span class="dim">正在读取全局默认引擎…</span></div>
     <div class="grid" id="tools"></div>
   </section>
 
@@ -167,7 +177,8 @@ docker compose down</pre>
     <ul>
       <li><b>密钥</b>：在仓库根目录 <code>.env</code> 里填一次 <code>DEEPSEEK_API_KEY</code>，7 个应用共用；也可以各应用目录自己的 <code>.env</code> 里分别填（根目录 <code>.env</code> 优先级更高）。</li>
       <li><b>改提示词</b>：<code>prompts/*.txt</code> 改完即生效（应用每次请求都重读，无需重启）。</li>
-      <li><b>引擎与密钥</b>：打开上面「⚙️ 引擎与密钥配置」→ 可视化选默认引擎（DeepSeek / MiniMax）、改接口地址与认证方式、填两家密钥、一键测试连通性。保存即生效（无需重启），密钥只写不回显。</li>
+      <li><b>全局默认引擎</b>：上面那一栏直接切（写进 <code>settings.json</code>，7 个应用共用）；单次做题还能在各应用的设置区临时切。</li>
+      <li><b>引擎与密钥</b>：打开上面「⚙️ 引擎与密钥配置」→ 可视化改接口地址、认证方式、JSON 模式、填两家密钥、一键测试连通性。保存即生效（无需重启），密钥只写不回显。</li>
       <li><b>改 .env</b>：执行 <code>docker compose up -d</code> 按新配置重建容器 —— 注意 <code>docker compose restart</code> 只重启进程、<b>不会</b>读入根目录 <code>.env</code> 的新值；<b>改 app.py</b> 用 <code>docker compose restart</code> 即可。</li>
       <li><b>改端口</b>：只改根目录 <code>.env</code>（如 <code>LISTENING_PORT=6555</code>）再 <code>docker compose up -d</code>，本页的跳转链接会自动跟随；卡片上的端口徽标是默认值，仅供对照。</li>
       <li><b>端口徽标 / 直连</b>：卡片与表格里的 <code>:5555</code> 之类为默认端口，实际跳转由 nginx 按 <code>.env</code> 决定。</li>
@@ -316,6 +327,64 @@ function buildPage(){
     APPS[0].port + "–" + APPS[APPS.length - 1].port;
 }
 
+/* ---------------- 全局默认引擎开关（写 settings.json，7 个应用共用） ---------------- */
+async function loadEngine() {
+  const host = document.getElementById("engine-switch");
+  try {
+    const res = await fetch("/settings-api/config", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    renderEngine(await res.json());
+  } catch (e) {
+    host.innerHTML = '<span class="dim">读取配置失败：' + e.message +
+      '（该开关需经门户访问；裸机运行请直接开配置页 :5562）</span>';
+  }
+}
+
+function renderEngine(cfg) {
+  const host = document.getElementById("engine-switch");
+  const active = cfg.active || {};
+  const provs = cfg.providers || [];
+  const cur = provs.filter(function(p){ return p.id === active.provider; })[0] || provs[0] || { models: [] };
+  host.innerHTML =
+    '<div class="switch-row">' +
+      '<span class="switch-label">⚙️ 全局默认引擎</span>' +
+      '<select id="engProvider">' + provs.map(function(p){
+        return '<option value="' + p.id + '"' + (p.id === active.provider ? ' selected' : '') + '>' +
+               p.label + (p.has_key ? '' : '（未配密钥）') + '</option>';
+      }).join('') + '</select>' +
+      '<select id="engModel">' + (cur.models || []).map(function(m){
+        return '<option value="' + m + '"' + (m === cur.model ? ' selected' : '') + '>' + m + '</option>';
+      }).join('') + '</select>' +
+      '<button class="btn-engine" id="engSave">保存为默认</button>' +
+      '<span class="dim" id="engHint">当前：' + active.tag + '</span>' +
+    '</div>';
+
+  const prov = document.getElementById("engProvider");
+  prov.onchange = function(){
+    const p = provs.filter(function(x){ return x.id === prov.value; })[0] || { models: [] };
+    document.getElementById("engModel").innerHTML = (p.models || []).map(function(m){
+      return '<option value="' + m + '">' + m + '</option>';
+    }).join('');
+  };
+  document.getElementById("engSave").onclick = async function(){
+    const hint = document.getElementById("engHint");
+    hint.textContent = "保存中…";
+    try {
+      const res = await fetch("/settings-api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: prov.value, model: document.getElementById("engModel").value || "" })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+      hint.textContent = "已保存，即刻生效 ✓";
+      window.setTimeout(function(){ loadEngine(); refreshStatus(); }, 500);
+    } catch (e) {
+      hint.textContent = "保存失败：" + e.message;
+    }
+  };
+}
+
 /* ---------------- 状态检测 ---------------- */
 function setState(key, state){
   document.querySelectorAll('[data-dot="' + key + '"]').forEach(function(d){
@@ -358,6 +427,7 @@ async function refreshStatus(){
 }
 
 buildPage();
+loadEngine();
 refreshStatus();
 document.getElementById("refresh").addEventListener("click", refreshStatus);
 setInterval(refreshStatus, 15000);

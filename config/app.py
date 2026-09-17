@@ -18,7 +18,9 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+import requests
+
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file
 
 import providers
 
@@ -152,6 +154,91 @@ def api_test():
 
 
 # ----------------------------------------------------------------------
+# 裸机「总入口」：/portal 直接把门户页面跑起来
+#   Docker 部署时这些路由由 nginx 承担（见 docker/nginx/default.conf.template）；
+#   裸机没有 nginx，所以在这里用 Flask 实现一份等价实现，页面文件完全共用
+#   （docker/portal/index.html）—— 两种部署方式得到同一个总入口体验。
+# ----------------------------------------------------------------------
+_PORT_VARS = (
+    ("listening",   "LISTENING_PORT",   5555),
+    ("cloze",       "CLOZE_PORT",       5556),
+    ("longread",    "LONGREAD_PORT",    5557),
+    ("carefulread", "CAREFULREAD_PORT", 5558),
+    ("translate",   "TRANSLATE_PORT",   5559),
+    ("writing",     "WRITING_PORT",     5560),
+    ("intensive",   "INTENSIVE_PORT",   5561),
+    ("config",      "CONFIG_PORT",      5562),
+)
+
+
+def _ports():
+    """端口来源与 Docker 一致：仓库根目录 .env 的 *_PORT（缺省用默认值）。"""
+    env_file = providers.read_env_file(providers.ROOT_ENV_FILE)
+    out = {}
+    for key, var, default in _PORT_VARS:
+        raw = (env_file.get(var) or os.environ.get(var) or "").strip()
+        try:
+            out[key] = int(raw) if raw else default
+        except ValueError:
+            out[key] = default
+    return out
+
+
+@app.route("/portal")
+def portal():
+    """门户导航面板（与 Docker 部署共用同一份页面文件）。"""
+    page = providers.ROOT_DIR / "docker" / "portal" / "index.html"
+    if not page.is_file():
+        return "门户页面缺失：docker/portal/index.html", 404
+    return send_file(str(page), mimetype="text/html")
+
+
+@app.route("/go/<app_key>/")
+def portal_go(app_key):
+    """门户卡片的跳转：302 到对应应用的宿主机端口。"""
+    port = _ports().get(app_key)
+    if not port:
+        abort(404)
+    host = (request.host or "").split(":")[0] or "127.0.0.1"
+    return redirect("http://%s:%d/" % (host, port), code=302)
+
+
+@app.route("/health/<app_key>/")
+def portal_health(app_key):
+    """门户状态灯：服务端代探各应用的 /api/health（浏览器同源，无 CORS 问题）。"""
+    port = _ports().get(app_key)
+    if not port:
+        return jsonify({"ok": False, "error": "未知应用：%s" % app_key}), 404
+    try:
+        r = requests.get("http://127.0.0.1:%d/api/health" % port, timeout=4)
+        return r.text, r.status_code, {"Content-Type": "application/json"}
+    except requests.RequestException as e:
+        return jsonify({"ok": False, "error": "无法连接 %s：%s" % (app_key, e)}), 502
+
+
+@app.route("/settings-api/config")
+def settings_api_config():
+    """门户的「全局默认引擎」开关读接口（Docker 下由 nginx 转发到这里）。"""
+    return api_config()
+
+
+@app.route("/settings-api/settings", methods=["POST"])
+def settings_api_settings():
+    """门户的「全局默认引擎」开关写接口。"""
+    return api_settings()
+
+
+@app.route("/offline/<path:name>")
+def portal_offline(name):
+    """门户里的「自由学习」离线工具（静态文件）。"""
+    base = (providers.ROOT_DIR / "自由学习").resolve()
+    target = (base / name).resolve()
+    if not str(target).startswith(str(base)) or not target.is_file():
+        abort(404)
+    return send_file(str(target))
+
+
+# ----------------------------------------------------------------------
 # 启动
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
@@ -163,6 +250,7 @@ if __name__ == "__main__":
     print("  CET-6 引擎与密钥配置  ->  http://%s:%d" % (host, port))
     for pid, cfg in providers.PROVIDERS.items():
         print("  %-9s 密钥：%s" % (cfg["label"], "已配置 [OK]" if providers.resolve_key(pid) else "未配置 [X]"))
+    print("  总入口：http://%s:%d/portal  （导航面板 + 状态灯 + 全局默认引擎开关）" % (host, port))
     print("  配置落盘：%s" % providers.SETTINGS_FILE)
     print("           %s" % providers.ROOT_ENV_FILE)
     print("  按 Ctrl+C 退出")

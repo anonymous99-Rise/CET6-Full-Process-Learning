@@ -36,3 +36,6 @@ desktop.ini
 .vscode/
 *.swp
 *.swo
+
+# 裸机运行的进程日志
+logs/
