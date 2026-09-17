@@ -23,12 +23,16 @@ import requests
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file
 
 import providers
+import auth  # 访问控制：登录页 + 会话（账号密码在根目录 .env 配置）
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_FILE = BASE_DIR / ".env"
 DEFAULT_PORT = 5562
 
 app = Flask(__name__)
+
+# 访问控制：登录页 + 会话（AUTH_USER / AUTH_PASSWORD 在仓库根目录 .env 配置）
+auth.register(app)
 
 
 # ----------------------------------------------------------------------

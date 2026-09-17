@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 import providers  # AI 引擎抽象层（DeepSeek / MiniMax 可选，本目录一份）
+import auth  # 访问控制：登录页 + 会话（账号密码在根目录 .env 配置）
 import requests
 from flask import Flask, jsonify, render_template, request
 
@@ -35,6 +36,9 @@ DEFAULT_PORT = 5558
 TYPE_LABEL = "仔细阅读"
 
 app = Flask(__name__)
+
+# 访问控制：登录页 + 会话（AUTH_USER / AUTH_PASSWORD 在仓库根目录 .env 配置）
+auth.register(app)
 
 
 # ----------------------------------------------------------------------

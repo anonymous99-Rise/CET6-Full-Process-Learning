@@ -41,6 +41,12 @@ x-app: &app
     MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
     # 允许非本机（局域网）在配置页写密钥（默认关；开启前请确认网络可信）
     ALLOW_REMOTE_KEY_WRITE: ${ALLOW_REMOTE_KEY_WRITE:-}
+    # 访问控制：账号密码在根目录 .env 配置（AUTH_ENABLED=1 时全部应用需要登录）
+    AUTH_ENABLED: ${AUTH_ENABLED:-}
+    AUTH_USER: ${AUTH_USER:-}
+    AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+    AUTH_SECRET: ${AUTH_SECRET:-}
+    AUTH_SESSION_DAYS: ${AUTH_SESSION_DAYS:-}
   volumes:
     # 整个仓库挂到 /apps，好处：
     #   · 改 prompts/*.txt 即时生效（应用每次请求都重读）
