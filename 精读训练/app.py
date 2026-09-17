@@ -23,7 +23,6 @@ MY_DIR = BASE_DIR.parent / "my"
 ENV_FILE = BASE_DIR / ".env"
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
-DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
 DEFAULT_PORT = 5561
 TYPE_LABEL = "精读训练"
 
@@ -43,6 +42,11 @@ def load_env(path):
 
 
 load_env(ENV_FILE)
+
+# 注意：DEFAULT_MODEL 必须在 load_env() 之后读取 —— load_env 用 os.environ.setdefault
+# 把「本应用目录 .env」写进环境变量；若在模块级、load_env 之前读，.env 里的
+# DEEPSEEK_MODEL 会被静默忽略（v3.4.0 修正）。
+DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 
 def get_key():
